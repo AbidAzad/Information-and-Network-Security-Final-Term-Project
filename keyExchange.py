@@ -1,4 +1,8 @@
-import random
+import math
+import random 
+from sympy import isprime
+from gmpy2 import powmod
+
 
 primeNumber = 102188617217178804476387977160129334431745945009730065519337094992129677228373
 primitiveRoot = 2
@@ -42,11 +46,88 @@ class LFSR:
         key = []
         for _ in range(length):
             key.append(self.shift())
-        return key
+        binary_string = ''.join(map(str, key))
+        generated_key = int(binary_string, 2)
+        return generated_key
 
 seed = [1, 0, 1, 0]  
 shiftFeedbackPositions = [0, 2, 3]       
 lfsr = LFSR(seed, shiftFeedbackPositions)
 key_length = 16
 generated_key = lfsr.generate_key(key_length)
+
 print("Generated LFSR Key:", generated_key)
+
+#RSA Functions#
+
+'''Calculates the modular exponetiation of a given message, power, and basis using the 'powmod' function from the gmpy2 library'''
+def exponentiation(message, power, basis):
+    return powmod(message, power, basis)
+
+'''Helper function that incorporates the extended euclidean algorithm to help determine the inverse value within the inverse_finder function.'''
+def extended_gcd(a, b):
+    if a == 0:
+        return b, 0, 1
+    else:
+        g, x, y = extended_gcd(b % a, a)
+        return g, y - (b // a) * x, x
+
+'''Finds the modular inverse of a given number a modulo n using the extended euclidean algorithm.'''
+def inverse_finder(a, n):
+    g, x, _ = extended_gcd(a, n)
+    if g != 1:
+        raise ValueError(f"The modular inverse does not exist for {a} modulo {n}")
+    else:
+        return x % n
+'''Helper function that generates a large prime number with the specified number of bits, in which for this assignment is 512.'''
+def generate_large_prime(bits):
+    while True:
+        num = random.randrange(0, 2**bits - 1)
+        if isprime(num):
+            return num
+
+'''A function that generates RSA public and private keys. It takes an optional parameter e for the rsaKeyInput; if not provided, it defaults to 3.'''
+def RSA_key_generate():
+    e = 65537
+
+    '''While case for the EXTREMELY rare case that duplicates may occur when generating the prime numbers.'''    
+    while(True):
+        p = generate_large_prime(256)
+        q = p
+        
+        while(p == q):
+            q = generate_large_prime(256)
+        n = p * q    
+        euler = (p-1) * (q-1)
+        
+        if(math.gcd(euler, e) == 1):
+            break
+
+    d = inverse_finder(e, euler)
+    publicKey = [e, n]
+    privateKey = [d, n]
+    return publicKey, privateKey
+
+'''A function encrypts a numeric message or a string using RSA encryption with a given key.'''
+def RSA_encrypt(message, key):
+    if not isinstance(message, str):
+        return exponentiation(message, key[0], key[1])
+    elif isinstance(message, str):
+        ciphertext = []
+        for element in range(0, len(message)): 
+            ciphertext.append(int(exponentiation(ord(message[element]), key[0], key[1])))
+        return ciphertext
+
+'''A function decrypts a numeric message or a list of numeric values using RSA decryption with a given key.'''
+def RSA_decrypt(message, key):
+    if not isinstance(message, str) and not isinstance(message, list):
+        return RSA_encrypt(message, key)
+    elif isinstance(message, list):
+        decrpyted = ''
+        for element in range(0, len(message)): 
+            decrpyted+= chr(exponentiation(message[element], key[0], key[1]))
+        return decrpyted
+ 
+publicKey, privateKey = RSA_key_generate()
+encrypted = RSA_encrypt(generated_key, publicKey)
+decrpyted = RSA_decrypt(encrypted, privateKey)
