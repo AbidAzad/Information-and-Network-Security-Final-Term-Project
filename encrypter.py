@@ -15,13 +15,3 @@ def decrypt(ciphertext, key):
     decrypted_bits = [int(bit) ^ int(key[i % len(key)]) for i, bit in enumerate(ciphertext)]
     return bits_to_text(''.join(map(str, decrypted_bits)))
 
-# Example Usage
-key = "10101011"
-message = "Hello, secure messaging!"
-
-encrypted_message = encrypt(message, key)
-decrypted_message = decrypt(encrypted_message, key)
-
-print("Original Message:", message)
-print("Encrypted Message:", encrypted_message)
-print("Decrypted Message:", decrypted_message)

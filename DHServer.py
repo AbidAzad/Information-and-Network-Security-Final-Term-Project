@@ -1,11 +1,11 @@
 import socket
 import threading
 import random
-
+import time
 
 
 # Server configuration
-HOST = '172.31.130.190'
+HOST = '172.31.252.215'
 PORT = 55555
 
 # Lists to store connected clients, their usernames
@@ -23,15 +23,14 @@ public_keys_dict = {}
 def broadcast(message, sender, publicKey=False):
     """Send a message to all clients except the sender."""
     for client in clients:
-        if client != sender:
-            try:
-                if(not publicKey):
-                    client.send(f"[{usernames[clients.index(sender)]}] ".encode('utf-8') + message)
-                else:
-                    client.send(message)
-            except:
-                # Remove the client if unable to send a message
-                handle_disconnect(client)
+        try:
+            if(not publicKey):
+                client.send(f"[{usernames[clients.index(sender)]}] ".encode('utf-8') + message)
+            else:
+                client.send(message)
+        except:
+            # Remove the client if unable to send a message
+            handle_disconnect(client)
 
 
 def handle_disconnect(client):
@@ -47,6 +46,7 @@ def broadcast_public_keys(client):
     """Send public keys to the newly joined client."""
     for username, public_key in public_keys_dict.items():
         key_message = f"Public key of {username}: {public_key}"
+        time.sleep(0.2)
         client.send(key_message.encode('utf-8'))
 
 def handle_client(client, username):
@@ -54,16 +54,19 @@ def handle_client(client, username):
     try:
         # Broadcast the new user joining the chat
         broadcast(f"{username} has joined the chat.".encode('utf-8'), client)
-        current_users = ', '.join(usernames)
-        client.send(f"Current users: {current_users}".encode('utf-8'))
+        current_users = ', '.join(user for user in usernames if user != username)
+        client.send(f"Other users in the Room: {current_users}".encode('utf-8'))
+        time.sleep(0.1)
         broadcast_public_keys(client)
-        
         # Broadcast the public key of the new user to all clients
         public_key_message = client.recv(1024).decode('utf-8')
         if public_key_message.startswith("Public key: "):
             public_key = int(public_key_message[12:])
             public_keys_dict[username] = public_key
+            print(public_keys_dict)
             broadcast(f"Public key of {username}: {public_key}".encode('utf-8'), client, True)
+
+
 
         else:
             print("Invalid public key format.")
@@ -89,7 +92,8 @@ def handle_client(client, username):
                     if target_client:
                         # Remove the command and username, leaving only the private message
                         cleaned_message = private_message
-                        target_client.send(f"[Private from {username}] ".encode('utf-8') + cleaned_message.encode('utf-8'))
+                        broadcast(private_message.encode('utf-8'), client)
+                        target_client.send(f"./decrypt {username} {cleaned_message}".encode('utf-8'))
                     else:
                         print(f"User not found.")
                 else:

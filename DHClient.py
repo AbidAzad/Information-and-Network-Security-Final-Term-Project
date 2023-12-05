@@ -2,9 +2,10 @@ import socket
 import threading
 import random
 from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, NORMAL, Toplevel, Label
+from encrypter import *
 
 # Client configuration
-HOST = '172.31.130.190'
+HOST = '172.31.252.215'
 PORT = 55555
 
 # Agreed Upon Values
@@ -87,7 +88,9 @@ class ChatGUI:
         # Send the username to the server
         client.send(username.encode('utf-8'))
         client.send(f"Public key: {pow(primitiveRoot, self.secret_integer, primeNumber)}".encode('utf-8'))
-
+        
+        
+        
     def send_message(self):
         message = self.message_entry.get()
         self.message_entry.delete(0, 'end')
@@ -107,13 +110,29 @@ class ChatGUI:
                 message = client.recv(1024).decode('utf-8')
                 if message.startswith("Public key of "):
                     self.handle_public_key(message)
+                elif message.startswith("./decrypt"):
+                    parts = message.split(' ', 2)
+                    target_username = parts[1]
+                    private_message = parts[2]
+                    
+                    message = f'The encrypted message was sent for you by {target_username}.'
+                    # Handle regular messages
+                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+                    self.message_listbox.insert('end', message)
+                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+                    shared_secret_key = pow(self.public_keys[target_username] , self.secret_integer, primeNumber)
+                    print(bin(shared_secret_key)[2:])
+                    message = f'Decrypted Message using associated Key: {decrypt(private_message, str(bin(shared_secret_key)[2:]))}'
+                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+                    self.message_listbox.insert('end', message)
+                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
                 else:
                     # Handle regular messages
                     self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
                     self.message_listbox.insert('end', message)
                     self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
-            except:
-                print("An error occurred while receiving messages.")
+            except Exception as e:
+                print(f"An error occurred while receiving messages: {e}")
                 client.close()
                 break
     def handle_public_key(self, message):
@@ -145,13 +164,21 @@ class ChatGUI:
                 # Calculate the shared secret key
                 shared_secret_key = pow(self.public_keys[target_username], self.secret_integer, primeNumber)
 
-                # Output the shared key for the specific user
+                # Output the
+                # shared key for the specific user
                 print(f"Shared secret key with {target_username}: {shared_secret_key}")
             else:
                 print(f"Public key for {target_username} not available.")
+        
                 
     def send_private_message(self, message):
         """Send a private message to a specific user."""
+        parts = message.split(' ', 2)
+        target_username = parts[1]
+        message = parts[2]
+        shared_secret_key = pow(self.public_keys[target_username], self.secret_integer, primeNumber)
+        print(bin(shared_secret_key)[2:])
+        message = f'./sendToUser {target_username} {encrypt(message, str(bin(shared_secret_key)[2:]))}'
         client.send(message.encode('utf-8'))
 
 
