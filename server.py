@@ -1,15 +1,14 @@
 import socket
 import threading
+import random
 
-# Agreed Upon Values
-primeNumber = 102188617217178804476387977160129334431745945009730065519337094992129677228373
-primitiveRoot = 2
+
 
 # Server configuration
-HOST = '192.168.1.31'
+HOST = '172.31.130.190'
 PORT = 55555
 
-# Lists to store connected clients and their usernames
+# Lists to store connected clients, their usernames
 clients = []
 usernames = []
 
@@ -17,22 +16,38 @@ usernames = []
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((HOST, PORT))
 
+public_keys_dict = {}
 
-def broadcast(message, sender):
+
+
+def broadcast(message, sender, publicKey=False):
     """Send a message to all clients except the sender."""
     for client in clients:
         if client != sender:
             try:
-                client.send(f"[{usernames[clients.index(sender)]}] ".encode('utf-8') + message)
+                if(not publicKey):
+                    client.send(f"[{usernames[clients.index(sender)]}] ".encode('utf-8') + message)
+                else:
+                    client.send(message)
             except:
                 # Remove the client if unable to send a message
-                index = clients.index(client)
-                clients.remove(client)
-                client.close()
-                username = usernames[index]
-                broadcast(f"{username} has left the chat.".encode('utf-8'), server)
-                usernames.remove(username)
+                handle_disconnect(client)
 
+
+def handle_disconnect(client):
+    """Handle client disconnection."""
+    index = clients.index(client)
+    client.close()
+    username = usernames[index]
+    broadcast(f"{username} has left the chat.".encode('utf-8'), client)  # Call broadcast directly here
+    usernames.remove(username)
+    clients.remove(client)
+    
+def broadcast_public_keys(client):
+    """Send public keys to the newly joined client."""
+    for username, public_key in public_keys_dict.items():
+        key_message = f"Public key of {username}: {public_key}"
+        client.send(key_message.encode('utf-8'))
 
 def handle_client(client, username):
     """Handle individual client connections."""
@@ -41,13 +56,24 @@ def handle_client(client, username):
         broadcast(f"{username} has joined the chat.".encode('utf-8'), client)
         current_users = ', '.join(usernames)
         client.send(f"Current users: {current_users}".encode('utf-8'))
+        broadcast_public_keys(client)
+        
+        # Broadcast the public key of the new user to all clients
+        public_key_message = client.recv(1024).decode('utf-8')
+        if public_key_message.startswith("Public key: "):
+            public_key = int(public_key_message[12:])
+            public_keys_dict[username] = public_key
+            broadcast(f"Public key of {username}: {public_key}".encode('utf-8'), client, True)
 
+        else:
+            print("Invalid public key format.")
+            handle_disconnect(client)
+        
         while True:
             message = client.recv(1024).decode('utf-8')
 
             # Announce all current users to the new client
-            
-            
+
             # Check if the message is a special command to send a private message
             if message.startswith('./sendToUser'):
                 # Extract the target username and the private message from the command
@@ -65,7 +91,7 @@ def handle_client(client, username):
                         cleaned_message = private_message
                         target_client.send(f"[Private from {username}] ".encode('utf-8') + cleaned_message.encode('utf-8'))
                     else:
-                        print(f"User {target_username} not found.")
+                        print(f"User not found.")
                 else:
                     print("Invalid private message format.")
 
@@ -73,13 +99,10 @@ def handle_client(client, username):
                 # Broadcast the message to all clients
                 broadcast(message.encode('utf-8'), client)
 
-    except:
-        # Remove the client if an error occurs (e.g., client disconnects)
-        index = clients.index(client)
-        clients.remove(client)
-        client.close()
-        broadcast(f"{username} has left the chat.".encode('utf-8'), server)
-        usernames.remove(username)
+    except (socket.error, ConnectionResetError):
+        # Handle client disconnection
+        handle_disconnect(client)
+
 
 
 def start_server():

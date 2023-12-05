@@ -17,7 +17,7 @@ def diffie_hellman(p, g):
     private_key_u2 = random.randint(2, p - 2)
 
     # Calculate public keys for each user using pow() for modular exponentiation
-    public_key_u1 = pow(g, private_key_u1, p)
+    public_key_u1 = pow(primitiveRoot, private_key_u1, primeNumber)
     public_key_u2 = pow(g, private_key_u2, p)
 
     # Shared secret calculation using pow() for modular exponentiation
@@ -89,20 +89,11 @@ def generate_large_prime(bits):
 '''A function that generates RSA public and private keys. It takes an optional parameter e for the rsaKeyInput; if not provided, it defaults to 3.'''
 def RSA_key_generate():
     e = 65537
-
-    '''While case for the EXTREMELY rare case that duplicates may occur when generating the prime numbers.'''    
-    while(True):
-        p = generate_large_prime(256)
-        q = p
-        
-        while(p == q):
-            q = generate_large_prime(256)
-        n = p * q    
-        euler = (p-1) * (q-1)
-        
-        if(math.gcd(euler, e) == 1):
-            break
-
+    p = primitiveRoot
+    q = primeNumber
+    
+    n = p * q    
+    euler = (p-1) * (q-1)  
     d = inverse_finder(e, euler)
     publicKey = [e, n]
     privateKey = [d, n]

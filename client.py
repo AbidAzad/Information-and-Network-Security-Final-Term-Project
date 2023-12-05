@@ -1,10 +1,15 @@
 import socket
 import threading
+import random
 from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, NORMAL, Toplevel, Label
 
 # Client configuration
-HOST = '192.168.1.31'
+HOST = '172.31.130.190'
 PORT = 55555
+
+# Agreed Upon Values
+primeNumber = 102188617217178804476387977160129334431745945009730065519337094992129677228373
+primitiveRoot = 2
 
 # Create a socket for the client
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -25,6 +30,7 @@ class UsernameGUI:
         # Button to submit the username
         submit_button = Button(root, text="Submit", command=self.submit_username)
         submit_button.pack(pady=10)
+
 
     def submit_username(self):
         username = self.username_entry.get()
@@ -64,20 +70,32 @@ class ChatGUI:
         # Create a Send button to send messages
         send_button = Button(root, text="Send", command=self.send_message)
         send_button.pack(pady=10)
+        
+        # Generate a secret integer for the client
+        self.secret_integer = random.randint(2, primeNumber - 2)
+        message = f'Your secret integer:{self.secret_integer}'
+        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+        self.message_listbox.insert('end', message)
+        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+        self.public_keys = {}
 
+                
         # Start a thread to receive messages
         receive_thread = threading.Thread(target=self.receive_messages)
         receive_thread.start()
-
+        
         # Send the username to the server
         client.send(username.encode('utf-8'))
+        client.send(f"Public key: {pow(primitiveRoot, self.secret_integer, primeNumber)}".encode('utf-8'))
 
     def send_message(self):
         message = self.message_entry.get()
         self.message_entry.delete(0, 'end')
 
         # Check if the message is a special command to send a private message
-        if message.startswith('./sendToUser'):
+        if message.startswith('./checkSharedKey'):
+            self.check_shared_key(message)
+        elif message.startswith('./sendToUser'):
             self.send_private_message(message)
         else:
             client.send(message.encode('utf-8'))
@@ -87,14 +105,51 @@ class ChatGUI:
         while True:
             try:
                 message = client.recv(1024).decode('utf-8')
-                self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                self.message_listbox.insert('end', message)
-                self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+                if message.startswith("Public key of "):
+                    self.handle_public_key(message)
+                else:
+                    # Handle regular messages
+                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+                    self.message_listbox.insert('end', message)
+                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
             except:
                 print("An error occurred while receiving messages.")
                 client.close()
                 break
+    def handle_public_key(self, message):
+            # Parse the public key message
+            parts = message.split(": ")
+            if len(parts) == 2:
+                username = parts[0][14:]
+                public_key = int(parts[1])
+                
+                # Store the public key in the dictionary
+                self.public_keys[username] = public_key
 
+                # Calculate the shared secret key
+                shared_secret_key = pow(public_key, self.secret_integer, primeNumber)
+
+                # Store the shared secret key and associated username for later use
+                # You may want to store this information securely in your application
+                # For simplicity, we'll print it here
+                print(f"Shared secret key with {username}: {shared_secret_key}")
+    
+    def check_shared_key(self, message):
+        """Check and output the shared key for a specific user."""
+        parts = message.split(' ')
+        if len(parts) == 2:
+            target_username = parts[1]
+
+            # Check if we have the public key for the target user
+            if target_username in self.public_keys:
+                # Calculate the shared secret key
+                shared_secret_key = pow(self.public_keys[target_username], self.secret_integer, primeNumber)
+
+                # Output the shared key for the specific user
+                print(f"Shared secret key with {target_username}: {shared_secret_key}")
+            else:
+                print(f"Public key for {target_username} not available.")
+                
     def send_private_message(self, message):
         """Send a private message to a specific user."""
         client.send(message.encode('utf-8'))
