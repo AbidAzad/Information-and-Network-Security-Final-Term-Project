@@ -2,6 +2,7 @@ import socket
 import threading
 import random
 import time
+from base64 import b64encode, b64decode
 
 
 # Server configuration
@@ -18,18 +19,21 @@ server.bind((HOST, PORT))
 
 public_keys_dict = {}
 
+RECIVINGIVs = False
+
+if(RECIVINGIVs):
+    public_ivs_dict = {}
 def broadcast(message, sender, publicKey=False):
     """Send a message to all clients except the sender."""
     for client in clients:
-        if client != sender:
-            try:
-                if(not publicKey):
-                    client.send(f"[{usernames[clients.index(sender)]}] ".encode('utf-8') + message)
-                else:
-                    client.send(message)
-            except:
-                # Remove the client if unable to send a message
-                handle_disconnect(client)
+        try:
+            if(not publicKey):
+                client.send(f"[{usernames[clients.index(sender)]}] ".encode('utf-8') + message)
+            else:
+                client.send(message)
+        except:
+            # Remove the client if unable to send a message
+            handle_disconnect(client)
 
 
 def handle_disconnect(client):
@@ -41,15 +45,32 @@ def handle_disconnect(client):
     usernames.remove(username)
     clients.remove(client)
     
+def broadcast_public_keys(client):
+    """Send public keys to the newly joined client."""
+    for username, public_key in public_keys_dict.items():
+        key_message = f"Public key of {username}: {public_key}"
+        time.sleep(0.2)
+        client.send(key_message.encode('utf-8'))
+
+def broadcast_public_IVs(client):
+    """Send public keys to the newly joined client."""
+    for username, public_iv in public_ivs_dict.items():
+        key_message = f"Public IV of {username}: {public_iv}"
+        time.sleep(0.2)
+        client.send(key_message.encode('utf-8'))
 
 def handle_client(client, username):
     """Handle individual client connections."""
     try:
         # Broadcast the new user joining the chat
         broadcast(f"{username} has joined the chat.".encode('utf-8'), client)
-        current_users = ', '.join(usernames)
-        client.send(f"Current users: {current_users}".encode('utf-8'))
-        
+        current_users = ', '.join(user for user in usernames if user != username)
+        client.send(f"Other users in the Room: {current_users}".encode('utf-8'))
+        time.sleep(0.1)
+        broadcast_public_keys(client)
+        if(RECIVINGIVs):
+            broadcast_public_IVs(client)
+
         # Broadcast the public key of the new user to all clients
         public_key_message = client.recv(1024).decode('utf-8')
         if public_key_message.startswith("Public key: "):
@@ -61,6 +82,18 @@ def handle_client(client, username):
             print("Invalid public key format.")
             handle_disconnect(client)
         
+        if(RECIVINGIVs):
+            time.sleep(0.1)
+            public_iv_message = client.recv(1024).decode('utf-8');
+            if public_iv_message.startswith("Public IV: "):
+                public_iv = b64decode(public_iv_message[11:])
+                public_ivs_dict[username] = public_iv_message
+                broadcast(f"Public IV of {username}: {public_iv}".encode('utf-8'), client, True)
+
+            else:
+                print("Invalid public key format.")
+                handle_disconnect(client)
+
         while True:
             message = client.recv(1024).decode('utf-8')
 
@@ -81,13 +114,14 @@ def handle_client(client, username):
                     if target_client:
                         # Remove the command and username, leaving only the private message
                         cleaned_message = private_message
-                        target_client.send(f"[Private from {username}] ".encode('utf-8') + cleaned_message.encode('utf-8'))
+                        broadcast(cleaned_message.encode('utf-8'), client)
+                        target_client.send(f"./decrypt {username} {cleaned_message}".encode('utf-8'))
                     else:
                         print(f"User not found.")
                 else:
                     print("Invalid private message format.")
             
-            if message.startswith('./sendLFSRkey'):
+            elif message.startswith('./sendLFSRkey'):
                 # Extract the target username and the private message from the command
                 parts = message.split(' ', 4)
                 if len(parts) == 5:
@@ -98,7 +132,7 @@ def handle_client(client, username):
 
                     # Send the private message to the target user
                     if target_client:
-                        target_client.send(f"{message} {username} ".encode('utf-8'))
+                        target_client.send(f"{message} {username}".encode('utf-8'))
                         response = f'./success {target_username}'
                     else:
                         print(f"User not found.")
@@ -109,7 +143,7 @@ def handle_client(client, username):
                     sender_username = usernames[sender_index]
                     sender_client = clients[sender_index]
                     time.sleep(0.1)
-                    sender_client.send(f'{response} '.encode('utf-8'))
+                    sender_client.send(response.encode('utf-8'))
 
                 else:
                     print("Invalid private message format.")

@@ -5,7 +5,7 @@ import time
 
 
 # Server configuration
-HOST = '172.31.252.215'
+HOST = '192.168.1.31'
 PORT = 55555
 
 # Lists to store connected clients, their usernames

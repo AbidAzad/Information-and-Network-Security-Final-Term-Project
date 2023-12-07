@@ -2,10 +2,14 @@ import socket
 import threading
 import random
 from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, NORMAL, Toplevel, Label
-from encrypter import *
+
+ENCRYPTIONTYPE = 'STREAMCIPHER'
+
+if(ENCRYPTIONTYPE == 'STREAMCIPHER'):
+    from streamCipher import *
 
 # Client configuration
-HOST = '172.31.252.215'
+HOST = '192.168.1.31'
 PORT = 55555
 
 # Agreed Upon Values

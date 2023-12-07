@@ -4,6 +4,15 @@ import random
 from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, NORMAL, Toplevel, Label
 from sympy import isprime
 from gmpy2 import powmod
+import os
+
+ENCRYPTIONTYPE = 'AES_ECB'
+
+if(ENCRYPTIONTYPE == 'STREAMCIPHER'):
+    from streamCipher import *
+
+elif(ENCRYPTIONTYPE == 'AES_ECB' or ENCRYPTIONTYPE == 'AES_CBC'):
+    from AES import *
 
 # Client configuration
 HOST = '192.168.1.31'
@@ -152,13 +161,17 @@ class ChatGUI:
         self.public_key, self.private_key = RSA_key_generate()
         self.recievedLSFRKeys = {}
         self.sentLSFRKeys = []
+        self.public_keys = {}
+        if(ENCRYPTIONTYPE == "AES_CBC"):
+            self.public_IVs = {}
+            self.IV = os.urandom(16)
 
         random_seed_length = random.randint(4, 15)  
         seed = [random.randint(0, 1) for _ in range(random_seed_length)]
         shiftFeedbackPositions = random.sample(range(len(seed)), k=random.randint(1, len(seed)))
         shiftFeedbackPositions.sort()
         lfsr = LFSR(seed, shiftFeedbackPositions)
-        key_length = 16
+        key_length = 256
         generated_key = lfsr.generate_key(key_length)
         self.LSFRKey = generated_key
         message = f"Your generated LFSR Key: {self.LSFRKey}"
@@ -173,6 +186,8 @@ class ChatGUI:
         # Send the username to the server
         client.send(username.encode('utf-8'))
         client.send(f"Public key: {self.public_key[1]}".encode('utf-8'))
+        if(ENCRYPTIONTYPE == "AES_CBC"):
+            client.send(f"Public IV: {b64encode(self.IV).decode()}".encode('utf-8'))
 
     def send_message(self):
         message = self.message_entry.get()
@@ -200,8 +215,13 @@ class ChatGUI:
                     fromUser = parts[5]
                     sentLSFR = RSA_decrypt(encryptedLSFRKey, decryptionKey)
                     message = f'Recieved from {fromUser}: {sentLSFR}'
-                    self.recievedLSFRKeys[fromUser] = sentLSFR
-                if message.startswith('./success'):
+                    self.recievedLSFRKeys[fromUser] = int(sentLSFR)
+                    print(fromUser)
+                    print(self.recievedLSFRKeys[fromUser])
+                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+                    self.message_listbox.insert('end', message)
+                    self.message_listbox.config(state=DISABLED)
+                elif message.startswith('./success'):
                     parts = message.split(' ', 1)
                     target_username = parts[1]
                     message = f"LSFR key successfully sent to {target_username}."
@@ -210,13 +230,41 @@ class ChatGUI:
                     self.message_listbox.config(state=DISABLED)
                     # Mark the LSFR key as sent to the target user
                     self.sentLSFRKeys.append(target_username)
+                elif message.startswith("Public key of "):
+                    self.handle_public_key(message)
+                elif message.startswith("Public IV of "):
+                    self.handle_public_IV(message)
                 elif message.startswith('./fail'):
                     parts = message.split(' ', 1)
                     target_username = parts[1]
                     message = f"Failed to send LSFR key to {target_username}."
                     self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
                     self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)                    
+                    self.message_listbox.config(state=DISABLED)
+                elif message.startswith("./decrypt"):
+                    parts = message.split(' ', 2)
+                    target_username = parts[1]
+                    private_message = parts[2]
+                    
+                    message = f'The encrypted message was sent for you by {target_username}.'
+                    # Handle regular messages
+                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+                    self.message_listbox.insert('end', message)
+                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+                    print(target_username)
+                    print(self.recievedLSFRKeys[target_username])
+                    if(ENCRYPTIONTYPE == "STREAMCIPHER"):
+                        DecryptedMessage = decrypt(private_message, str(bin(self.recievedLSFRKeys[target_username])[2:]))
+                    elif(ENCRYPTIONTYPE == "AES_ECB"):
+                        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
+                        print(private_message)
+                        DecryptedMessage = decrypt(str(private_message), key_bytes, modes.ECB()).decode('utf-8')
+                    elif(ENCRYPTIONTYPE == "AES_CBC"):
+                        DecryptedMessage = decrypt(private_message, str(bin(self.recievedLSFRKeys[target_username])[2:]), modes.CBC(self.public_IVs[target_username]))
+                    message = f'Decrypted Message using associated Key: {DecryptedMessage}'
+                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+                    self.message_listbox.insert('end', message)
+                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification                    
                 else:
                     self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
                     self.message_listbox.insert('end', message)
@@ -238,6 +286,14 @@ class ChatGUI:
             return
 
         # Send the private message to the target user
+        if(ENCRYPTIONTYPE == "STREAMCIPHER"):
+            message = f'./sendToUser {target_username} {encrypt(private_message, str(bin(self.LSFRKey)[2:]))}'
+        elif(ENCRYPTIONTYPE == "AES_ECB"):
+            key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
+            message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, modes.ECB()).decode()}'
+            decrypt(encrypt(str(private_message), key_bytes, modes.ECB()), key_bytes, modes.ECB())
+        elif(ENCRYPTIONTYPE == "AES_CBC"):
+            message = f'./sendToUser {target_username} {encrypt(private_message, str(bin(self.LSFRKey)[2:]), modes.CBC(self.IV))}'
         client.send(message.encode('utf-8'))
 
     def send_LSFR_key(self, message):
@@ -251,7 +307,26 @@ class ChatGUI:
         # Send the LSFR key to the target user
         encrypted_lsfr_key = RSA_encrypt(self.LSFRKey, self.public_key)
         client.send(f"./sendLFSRkey {target_username} {encrypted_lsfr_key} {self.private_key[0]} {self.private_key[1]}".encode('utf-8'))
-        
+    
+    def handle_public_key(self, message):
+        # Parse the public key message
+        parts = message.split(": ")
+        if len(parts) == 2:
+            username = parts[0][14:]
+            public_key = int(parts[1])
+            
+            self.public_keys[username] = public_key
+            print(f'Recieved {username}\'s public key: {public_key}')
+
+    def handle_public_IV(self, message):
+        # Parse the public key message
+        parts = message.split(": ")
+        if len(parts) == 2:
+            username = parts[0][13:]
+            IV = parts[1]
+            
+            self.public_IVs[username] = b64decode(IV)
+            print(f'Recieved {username}\'s public IV: {IV}')         
 
 
 
