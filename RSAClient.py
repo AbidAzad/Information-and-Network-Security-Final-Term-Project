@@ -5,14 +5,17 @@ from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, 
 from sympy import isprime
 from gmpy2 import powmod
 import os
+import time
 
-ENCRYPTIONTYPE = 'AES_ECB'
+ENCRYPTIONTYPE = 'DES_CBC'
 
 if(ENCRYPTIONTYPE == 'STREAMCIPHER'):
     from streamCipher import *
 
 elif(ENCRYPTIONTYPE == 'AES_ECB' or ENCRYPTIONTYPE == 'AES_CBC'):
     from AES import *
+elif(ENCRYPTIONTYPE == 'DES_ECB' or ENCRYPTIONTYPE == 'DES_CBC'):
+    from DES import *
 
 # Client configuration
 HOST = '192.168.1.31'
@@ -165,13 +168,17 @@ class ChatGUI:
         if(ENCRYPTIONTYPE == "AES_CBC"):
             self.public_IVs = {}
             self.IV = os.urandom(16)
-
+        elif(ENCRYPTIONTYPE == "DES_CBC"):
+            self.public_IVs = {}
+            self.IV = os.urandom(8)
         random_seed_length = random.randint(4, 15)  
         seed = [random.randint(0, 1) for _ in range(random_seed_length)]
         shiftFeedbackPositions = random.sample(range(len(seed)), k=random.randint(1, len(seed)))
         shiftFeedbackPositions.sort()
         lfsr = LFSR(seed, shiftFeedbackPositions)
         key_length = 256
+        if(ENCRYPTIONTYPE == 'DES_ECB' or ENCRYPTIONTYPE == 'DES_CBC'):
+            key_length = 64
         generated_key = lfsr.generate_key(key_length)
         self.LSFRKey = generated_key
         message = f"Your generated LFSR Key: {self.LSFRKey}"
@@ -185,9 +192,10 @@ class ChatGUI:
         
         # Send the username to the server
         client.send(username.encode('utf-8'))
-        client.send(f"Public key: {self.public_key[1]}".encode('utf-8'))
-        if(ENCRYPTIONTYPE == "AES_CBC"):
-            client.send(f"Public IV: {b64encode(self.IV).decode()}".encode('utf-8'))
+        if(ENCRYPTIONTYPE == "AES_CBC" or ENCRYPTIONTYPE == "DES_CBC"):
+            client.send(f"Public key: {self.public_key[1]} Public IV: {b64encode(self.IV).decode()}".encode('utf-8'))
+        else:
+            client.send(f"Public key: {self.public_key[1]}".encode('utf-8'))
 
     def send_message(self):
         message = self.message_entry.get()
@@ -245,14 +253,11 @@ class ChatGUI:
                     parts = message.split(' ', 2)
                     target_username = parts[1]
                     private_message = parts[2]
-                    
                     message = f'The encrypted message was sent for you by {target_username}.'
                     # Handle regular messages
                     self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
                     self.message_listbox.insert('end', message)
                     self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
-                    print(target_username)
-                    print(self.recievedLSFRKeys[target_username])
                     if(ENCRYPTIONTYPE == "STREAMCIPHER"):
                         DecryptedMessage = decrypt(private_message, str(bin(self.recievedLSFRKeys[target_username])[2:]))
                     elif(ENCRYPTIONTYPE == "AES_ECB"):
@@ -260,7 +265,14 @@ class ChatGUI:
                         print(private_message)
                         DecryptedMessage = decrypt(str(private_message), key_bytes, modes.ECB()).decode('utf-8')
                     elif(ENCRYPTIONTYPE == "AES_CBC"):
-                        DecryptedMessage = decrypt(private_message, str(bin(self.recievedLSFRKeys[target_username])[2:]), modes.CBC(self.public_IVs[target_username]))
+                        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
+                        DecryptedMessage = decrypt(private_message, key_bytes, modes.CBC(self.public_IVs[target_username]))
+                    elif(ENCRYPTIONTYPE == "DES_ECB"):
+                        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
+                        DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_ECB)     
+                    elif(ENCRYPTIONTYPE == "DES_CBC"):
+                        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
+                        DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_CBC, self.public_IVs[target_username])                      
                     message = f'Decrypted Message using associated Key: {DecryptedMessage}'
                     self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
                     self.message_listbox.insert('end', message)
@@ -291,9 +303,15 @@ class ChatGUI:
         elif(ENCRYPTIONTYPE == "AES_ECB"):
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
             message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, modes.ECB()).decode()}'
-            decrypt(encrypt(str(private_message), key_bytes, modes.ECB()), key_bytes, modes.ECB())
         elif(ENCRYPTIONTYPE == "AES_CBC"):
-            message = f'./sendToUser {target_username} {encrypt(private_message, str(bin(self.LSFRKey)[2:]), modes.CBC(self.IV))}'
+            key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
+            message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, modes.CBC(self.IV)).decode()}'
+        elif(ENCRYPTIONTYPE == "DES_ECB"):
+            key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
+            message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, DES.MODE_ECB).decode()}'
+        elif(ENCRYPTIONTYPE == "DES_CBC"):
+            key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
+            message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, DES.MODE_CBC, self.IV).decode()}'            
         client.send(message.encode('utf-8'))
 
     def send_LSFR_key(self, message):
@@ -323,9 +341,9 @@ class ChatGUI:
         parts = message.split(": ")
         if len(parts) == 2:
             username = parts[0][13:]
-            IV = parts[1]
+            IV = b64decode(parts[1])
             
-            self.public_IVs[username] = b64decode(IV)
+            self.public_IVs[username] = IV
             print(f'Recieved {username}\'s public IV: {IV}')         
 
 

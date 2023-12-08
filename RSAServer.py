@@ -19,10 +19,11 @@ server.bind((HOST, PORT))
 
 public_keys_dict = {}
 
-RECIVINGIVs = False
+RECIVINGIVs = True
 
 if(RECIVINGIVs):
     public_ivs_dict = {}
+    
 def broadcast(message, sender, publicKey=False):
     """Send a message to all clients except the sender."""
     for client in clients:
@@ -55,7 +56,7 @@ def broadcast_public_keys(client):
 def broadcast_public_IVs(client):
     """Send public keys to the newly joined client."""
     for username, public_iv in public_ivs_dict.items():
-        key_message = f"Public IV of {username}: {public_iv}"
+        key_message = f"Public IV of {username}: {b64encode(public_iv).decode()}"
         time.sleep(0.2)
         client.send(key_message.encode('utf-8'))
 
@@ -69,31 +70,34 @@ def handle_client(client, username):
         time.sleep(0.1)
         broadcast_public_keys(client)
         if(RECIVINGIVs):
+            time.sleep(0.1)
             broadcast_public_IVs(client)
 
         # Broadcast the public key of the new user to all clients
         public_key_message = client.recv(1024).decode('utf-8')
         if public_key_message.startswith("Public key: "):
-            public_key = int(public_key_message[12:])
-            public_keys_dict[username] = public_key
-            broadcast(f"Public key of {username}: {public_key}".encode('utf-8'), client, True)
+            parts = public_key_message.split(" Public IV: ")
+            if len(parts) == 1:
+                # Only public key is provided
+                public_key = int(parts[0][12:])
+                print(public_key)
+                public_keys_dict[username] = public_key
+                broadcast(f"Public key of {username}: {public_key}".encode('utf-8'), client, True)
+
+            elif len(parts) == 2:
+                # Both public key and public IV are provided
+                public_key = int(parts[0][12:])
+                public_iv = b64decode(parts[1])
+                public_keys_dict[username] = public_key
+                public_ivs_dict[username] = public_iv
+                broadcast(f"Public key of {username}: {public_key}".encode('utf-8'), client, True)
+                time.sleep(0.1)
+                broadcast(f"Public IV of {username}: {b64encode(public_iv).decode}".encode('utf-8'), client, True)
 
         else:
-            print("Invalid public key format.")
-            handle_disconnect(client)
-        
-        if(RECIVINGIVs):
-            time.sleep(0.1)
-            public_iv_message = client.recv(1024).decode('utf-8');
-            if public_iv_message.startswith("Public IV: "):
-                public_iv = b64decode(public_iv_message[11:])
-                public_ivs_dict[username] = public_iv_message
-                broadcast(f"Public IV of {username}: {public_iv}".encode('utf-8'), client, True)
-
-            else:
-                print("Invalid public key format.")
-                handle_disconnect(client)
-
+            print("Invalid public key format.\n")
+            print(public_key_message)
+            
         while True:
             message = client.recv(1024).decode('utf-8')
 
