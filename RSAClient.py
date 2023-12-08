@@ -6,6 +6,8 @@ from sympy import isprime
 from gmpy2 import powmod
 import os
 import time
+import math 
+import hashlib
 
 ENCRYPTIONTYPE = 'DES_CBC'
 
@@ -52,7 +54,12 @@ shiftFeedbackPositions = [0, 2, 3]
 lfsr = LFSR(seed, shiftFeedbackPositions)
 
 #RSA Functions#
-
+'''Helper function that generates a large prime number with the specified number of bits, in which for this assignment is 512.'''
+def generate_large_prime(bits):
+    while True:
+        num = random.randrange(0, 2**bits - 1)
+        if isprime(num):
+            return num
 '''Calculates the modular exponetiation of a given message, power, and basis using the 'powmod' function from the gmpy2 library'''
 def exponentiation(message, power, basis):
     return powmod(message, power, basis)
@@ -75,11 +82,17 @@ def inverse_finder(a, n):
 '''A function that generates RSA public and private keys. It takes an optional parameter e for the rsaKeyInput; if not provided, it defaults to 3.'''
 def RSA_key_generate():
     e = 65537
-    p = primitiveRoot
-    q = primeNumber
-    
-    n = p * q    
-    euler = (p-1) * (q-1)  
+    while(True):
+        p = generate_large_prime(512)
+        q = p
+        
+        while(p == q):
+            q = generate_large_prime(512)
+        n = p * q    
+        euler = (p-1) * (q-1)
+        
+        if(math.gcd(euler, e) == 1):
+            break
     d = inverse_finder(e, euler)
     publicKey = [e, n]
     privateKey = [d, n]
@@ -104,7 +117,28 @@ def RSA_decrypt(message, key):
         for element in range(0, len(message)): 
             decrpyted+= chr(exponentiation(message[element], key[0], key[1]))
         return decrpyted
+def hash_message(message):
+    # Hash the message using SHA-256
+    sha256 = hashlib.sha256()
+    sha256.update(str(message).encode('utf-8'))
+    return int(sha256.hexdigest(), 16)
 
+def RSA_sign(message, private_key):
+    hashed_message = hash_message(message)
+    signature = exponentiation(hashed_message, private_key[0], private_key[1])
+    return signature
+
+def RSA_verify(message, signature, public_key):
+    hashed_message = hash_message(message)
+    decrypted_signature = exponentiation(signature, public_key[0], public_key[1])
+    
+    if hashed_message == decrypted_signature:
+        print("YESSSSSSSSSSSSSSSSSSSS!")
+        return True
+    else:
+        print("NOOOOOOOOOOOOOOO!")
+        return False
+    
 class UsernameGUI:
     def __init__(self, root):
         self.root = root
@@ -165,6 +199,8 @@ class ChatGUI:
         self.recievedLSFRKeys = {}
         self.sentLSFRKeys = []
         self.public_keys = {}
+        self.public_signature_keys = {}
+        self.publicSignKey, self.privateSignKey = RSA_key_generate()
         if(ENCRYPTIONTYPE == "AES_CBC"):
             self.public_IVs = {}
             self.IV = os.urandom(16)
@@ -193,10 +229,10 @@ class ChatGUI:
         # Send the username to the server
         client.send(username.encode('utf-8'))
         if(ENCRYPTIONTYPE == "AES_CBC" or ENCRYPTIONTYPE == "DES_CBC"):
-            client.send(f"Public key: {self.public_key[1]} Public IV: {b64encode(self.IV).decode()}".encode('utf-8'))
+            client.send(f"Public key: {self.public_key[1]} Public Signature Key: ({self.publicSignKey[0]},{self.publicSignKey[1]}) Public IV: {b64encode(self.IV).decode()}".encode('utf-8'))
         else:
-            client.send(f"Public key: {self.public_key[1]}".encode('utf-8'))
-
+            client.send(f"Public key: {self.public_key[1]} Public Signature Key: ({self.publicSignKey[0]},{self.publicSignKey[1]})".encode('utf-8'))        
+        
     def send_message(self):
         message = self.message_entry.get()
         self.message_entry.delete(0, 'end')
@@ -242,6 +278,8 @@ class ChatGUI:
                     self.handle_public_key(message)
                 elif message.startswith("Public IV of "):
                     self.handle_public_IV(message)
+                elif message.startswith("Signature key of "):
+                    self.handle_public_signature(message)                     
                 elif message.startswith('./fail'):
                     parts = message.split(' ', 1)
                     target_username = parts[1]
@@ -250,9 +288,10 @@ class ChatGUI:
                     self.message_listbox.insert('end', message)
                     self.message_listbox.config(state=DISABLED)
                 elif message.startswith("./decrypt"):
-                    parts = message.split(' ', 2)
+                    parts = message.split(' ', 3)
                     target_username = parts[1]
                     private_message = parts[2]
+                    signature = int(parts[3])    
                     message = f'The encrypted message was sent for you by {target_username}.'
                     # Handle regular messages
                     self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
@@ -276,7 +315,17 @@ class ChatGUI:
                     message = f'Decrypted Message using associated Key: {DecryptedMessage}'
                     self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
                     self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification                    
+                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+                    if(RSA_verify(DecryptedMessage, signature, self.public_signature_keys[target_username])):
+                        message = f'This message has been verified from its Digital Signature!'
+                        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+                        self.message_listbox.insert('end', message)
+                        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+                    else:
+                        message = f'This message is not verified from its Digital Signature!'
+                        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+                        self.message_listbox.insert('end', message)
+                        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification                                              
                 else:
                     self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
                     self.message_listbox.insert('end', message)
@@ -299,19 +348,25 @@ class ChatGUI:
 
         # Send the private message to the target user
         if(ENCRYPTIONTYPE == "STREAMCIPHER"):
-            message = f'./sendToUser {target_username} {encrypt(private_message, str(bin(self.LSFRKey)[2:]))}'
+            ciphertext = encrypt(private_message, str(bin(self.LSFRKey)[2:]))
+            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
         elif(ENCRYPTIONTYPE == "AES_ECB"):
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, modes.ECB()).decode()}'
+            ciphertext = encrypt(str(private_message), key_bytes, modes.ECB()).decode()
+            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
         elif(ENCRYPTIONTYPE == "AES_CBC"):
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, modes.CBC(self.IV)).decode()}'
+            ciphertext = encrypt(str(private_message), key_bytes, modes.CBC(self.IV)).decode()
+            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
         elif(ENCRYPTIONTYPE == "DES_ECB"):
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, DES.MODE_ECB).decode()}'
+            ciphertext = encrypt(str(private_message), key_bytes, DES.MODE_ECB).decode()
+            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
         elif(ENCRYPTIONTYPE == "DES_CBC"):
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            message = f'./sendToUser {target_username} {encrypt(str(private_message), key_bytes, DES.MODE_CBC, self.IV).decode()}'            
+            ciphertext = encrypt(str(private_message), key_bytes, DES.MODE_CBC, self.IV).decode()
+            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'          
+        
         client.send(message.encode('utf-8'))
 
     def send_LSFR_key(self, message):
@@ -344,8 +399,19 @@ class ChatGUI:
             IV = b64decode(parts[1])
             
             self.public_IVs[username] = IV
-            print(f'Recieved {username}\'s public IV: {IV}')         
+            print(f'Recieved {username}\'s public IV: {IV}')    
 
+    def handle_public_signature(self, message):
+        # Parse the public key message
+        parts = message.split(": ")
+        if len(parts) == 2:
+            username = parts[0][17:]
+            signature_key_str = parts[1]
+            signature_key_str = signature_key_str.replace("(", "").replace(")", "")
+            signature_key = list(map(int, signature_key_str.replace("(", "").replace(")", "").split(',')))
+            
+            self.public_signature_keys[username] = signature_key
+            print(f'Recieved {username}\'s public signature key: {signature_key}')     
 
 
 if __name__ == "__main__":

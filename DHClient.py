@@ -240,7 +240,7 @@ class ChatGUI:
                         self.message_listbox.insert('end', message)
                         self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
                     else:
-                        message = f'This message has been verified from its Digital Signature!'
+                        message = f'This message is not verified from its Digital Signature!'
                         self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
                         self.message_listbox.insert('end', message)
                         self.message_listbox.config(state=DISABLED)  # Disable listbox after modification                                                
