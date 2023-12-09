@@ -50,11 +50,11 @@ def inverse_finder(a, n):
 def RSA_key_generate():
     e = 65537
     while(True):
-        p = generate_large_prime(512)
+        p = generate_large_prime(256)
         q = p
         
         while(p == q):
-            q = generate_large_prime(512)
+            q = generate_large_prime(256)
         n = p * q    
         euler = (p-1) * (q-1)
         
@@ -80,10 +80,8 @@ def RSA_verify(message, signature, public_key):
     decrypted_signature = exponentiation(signature, public_key[0], public_key[1])
     
     if hashed_message == decrypted_signature:
-        print("YESSSSSSSSSSSSSSSSSSSS!")
         return True
     else:
-        print("NOOOOOOOOOOOOOOO!")
         return False
 # Create a socket for the client
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -123,11 +121,12 @@ class UsernameGUI:
 class ChatGUI:
     def __init__(self, root, username):
         self.root = root
-        self.root.title("Chat Application")
+        self.root.title(f"{username}'s Chat Window")
 
         # Create a listbox to display messages
-        self.message_listbox = Listbox(root, height=20, width=50, selectbackground="white", exportselection=False)
+        self.message_listbox = Listbox(root, height=20, width=200, selectbackground="white", exportselection=False)
         self.message_listbox.pack(padx=10, pady=10)
+        self.username = username
 
         # Create a scrollbar for the listbox
         scrollbar = Scrollbar(root)
@@ -138,7 +137,7 @@ class ChatGUI:
         scrollbar.config(command=self.message_listbox.yview)
 
         # Create an entry widget for typing messages
-        self.message_entry = Entry(root, width=50)
+        self.message_entry = Entry(root, width=200)
         self.message_entry.pack(padx=10, pady=10)
 
         # Create a Send button to send messages
@@ -147,12 +146,8 @@ class ChatGUI:
         
         # Generate a secret integer for the client
         self.secret_integer = random.getrandbits(64)
-        message = f'Your secret integer:{self.secret_integer}'
-        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-        self.message_listbox.insert('end', message)
-        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+        
         self.public_keys = {}
-
         self.public_signature_keys = {}
 
         self.publicSignKey, self.privateSignKey = RSA_key_generate()
@@ -173,9 +168,19 @@ class ChatGUI:
         client.send(username.encode('utf-8'))
         if(ENCRYPTIONTYPE == "AES_CBC" or ENCRYPTIONTYPE == "DES_CBC"):
             client.send(f"Public key: {pow(primitiveRoot, self.secret_integer, primeNumber)} Public Signature Key: ({self.publicSignKey[0]},{self.publicSignKey[1]}) Public IV: {b64encode(self.IV).decode()}".encode('utf-8'))
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+            self.display_message(f'Your secret integer:{self.secret_integer}')
+            self.display_message(f"Your Public Key: {pow(primitiveRoot, self.secret_integer, primeNumber)}")
+            self.display_message(f"Your Public Signature Key: {({self.publicSignKey[0]},{self.publicSignKey[1]})}")
+            self.display_message(f"Your Public IV: {b64encode(self.IV).decode()}")
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")            
         else:
             client.send(f"Public key: {pow(primitiveRoot, self.secret_integer, primeNumber)} Public Signature Key: ({self.publicSignKey[0]},{self.publicSignKey[1]})".encode('utf-8'))        
-        
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+            self.display_message(f'Your secret integer:{self.secret_integer}')
+            self.display_message(f"Your Public Key: {pow(primitiveRoot, self.secret_integer, primeNumber)}")
+            self.display_message(f"Your Public Signature Key: {({self.publicSignKey[0]},{self.publicSignKey[1]})}")
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")         
         
     def send_message(self):
         message = self.message_entry.get()
@@ -193,105 +198,124 @@ class ChatGUI:
         """Receive and display messages from the server."""
         while True:
             try:
+                # Receive message from the server
                 message = client.recv(1024).decode('utf-8')
+
+                # Handle different types of messages
                 if message.startswith("Public key of "):
                     self.handle_public_key(message)
                 elif message.startswith("Public IV of "):
                     self.handle_public_IV(message)
                 elif message.startswith("Signature key of "):
-                    self.handle_public_signature(message)                    
+                    self.handle_public_signature(message)
                 elif message.startswith("./decrypt"):
+                    # Split the message into parts
                     parts = message.split(' ', 3)
                     target_username = parts[1]
                     private_message = parts[2]
-                    signature = int(parts[3])    
-                    message = f'The encrypted message was sent for you by {target_username}.'
-                    # Handle regular messages
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
-                    shared_secret_key = pow(self.public_keys[target_username] , self.secret_integer, primeNumber)
-                    print(bin(shared_secret_key)[2:])
-                    if(ENCRYPTIONTYPE == "STREAMCIPHER"):
-                        DecryptedMessage = decrypt(private_message, str(bin(shared_secret_key)[2:]))
-                    elif(ENCRYPTIONTYPE == "AES_ECB"):
-                        key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, 'little')
-                        print(private_message)
-                        DecryptedMessage = decrypt(str(private_message), key_bytes, modes.ECB()).decode('utf-8')
-                    elif(ENCRYPTIONTYPE == "AES_CBC"):
-                        key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, 'little')
-                        DecryptedMessage = decrypt(private_message, key_bytes, modes.CBC(self.public_IVs[target_username]))
-                    elif(ENCRYPTIONTYPE == "DES_ECB"):
-                        key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, byteorder='big')
-                        key_bytes = hashlib.sha256(key_bytes).digest()[:8]
-                        DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_ECB)     
-                    elif(ENCRYPTIONTYPE == "DES_CBC"):
-                        key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, byteorder='big')
-                        key_bytes = hashlib.sha256(key_bytes).digest()[:8]
-                        DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_CBC, self.public_IVs[target_username])                      
-                    message = f'Decrypted Message using associated Key: {DecryptedMessage}'
-                    
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
-                    if(RSA_verify(DecryptedMessage, signature, self.public_signature_keys[target_username])):
-                        message = f'This message has been verified from its Digital Signature!'
-                        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                        self.message_listbox.insert('end', message)
-                        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+                    signature = int(parts[3])
+
+                    # Display information about the encrypted message
+                    self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+                    display_message = f'The encrypted message was sent for you by {target_username}.'
+                    self.display_message(display_message)
+
+                    # Compute shared secret key
+                    shared_secret_key = pow(self.public_keys[target_username], self.secret_integer, primeNumber)
+
+                    # Decrypt the message based on encryption type
+                    DecryptedMessage = self.decrypt_message(private_message, shared_secret_key, target_username)
+
+                    # Display decrypted message
+                    display_message = f'Decrypted Message using associated Key: {DecryptedMessage}'
+                    self.display_message(display_message)
+
+                    # Verify the digital signature
+                    if self.verify_signature(DecryptedMessage, signature, self.public_signature_keys[target_username]):
+                        self.display_message('This message has been verified from its Digital Signature!')
                     else:
-                        message = f'This message is not verified from its Digital Signature!'
-                        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                        self.message_listbox.insert('end', message)
-                        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification                                                
+                        self.display_message('This message is not verified from its Digital Signature!')
+                    self.display_message("--------------------------------------------------------------------------------------------------------------------------------")    
                 else:
                     # Handle regular messages
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+                    self.display_message(message)
+
             except Exception as e:
+                # Handle exceptions
                 print(f"An error occurred while receiving messages: {e}")
                 client.close()
                 break
+
+    def display_message(self, message):
+        """Display a message in the message listbox."""
+        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
+        self.message_listbox.insert('end', message)
+        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+
+    def decrypt_message(self, private_message, shared_secret_key, target_username):
+        """Decrypt the message based on the encryption type."""
+        if ENCRYPTIONTYPE == "STREAMCIPHER":
+            return decrypt(private_message, str(bin(shared_secret_key)[2:]))
+        elif ENCRYPTIONTYPE == "AES_ECB" or ENCRYPTIONTYPE == "AES_CBC":
+            key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, 'little')
+            return decrypt(private_message, key_bytes, modes.ECB() if ENCRYPTIONTYPE == "AES_ECB" else modes.CBC(self.public_IVs[target_username]))
+        elif ENCRYPTIONTYPE == "DES_ECB" or ENCRYPTIONTYPE == "DES_CBC":
+            key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, byteorder='big')
+            key_bytes = hashlib.sha256(key_bytes).digest()[:8]
+            return decrypt(private_message, key_bytes, DES.MODE_ECB if ENCRYPTIONTYPE == "DES_ECB" else DES.MODE_CBC, self.public_IVs[target_username])
+
+    def verify_signature(self, decrypted_message, signature, public_signature_key):
+        """Verify the digital signature of the decrypted message."""
+        if RSA_verify(decrypted_message, signature, public_signature_key):
+            return True
+        return False
+
     def handle_public_key(self, message):
             # Parse the public key message
             parts = message.split(": ")
             if len(parts) == 2:
                 username = parts[0][14:]
-                public_key = int(parts[1])
-                
-                # Store the public key in the dictionary
-                self.public_keys[username] = public_key
+                if(not (username == self.username)):
+                    public_key = int(parts[1])
+                    
+                    # Store the public key in the dictionary
+                    self.public_keys[username] = public_key
 
-                # Calculate the shared secret key
-                shared_secret_key = pow(public_key, self.secret_integer, primeNumber)
+                    # Calculate the shared secret key
+                    shared_secret_key = pow(public_key, self.secret_integer, primeNumber)
 
-                # Store the shared secret key and associated username for later use
-                # You may want to store this information securely in your application
-                # For simplicity, we'll print it here
-                print(f"Shared secret key with {username}: {shared_secret_key}")
+                    # Store the shared secret key and associated username for later use
+                    self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+                    self.display_message(f"Recieved Public Key from {username}: {public_key}")
+                    self.display_message(f"Shared secret key with {username}: {shared_secret_key}")
+                    self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
     
     def handle_public_IV(self, message):
         # Parse the public key message
         parts = message.split(": ")
         if len(parts) == 2:
             username = parts[0][13:]
-            IV = b64decode(parts[1])
-            
-            self.public_IVs[username] = IV
-            print(f'Recieved {username}\'s public IV: {IV}')
+            if(not (username == self.username)):
+                IV = b64decode(parts[1])
+                self.public_IVs[username] = IV
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+                self.display_message(f'Recieved {username}\'s public IV: {IV}')
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
     
     def handle_public_signature(self, message):
         # Parse the public key message
         parts = message.split(": ")
         if len(parts) == 2:
             username = parts[0][17:]
-            signature_key_str = parts[1]
-            signature_key_str = signature_key_str.replace("(", "").replace(")", "")
-            signature_key = list(map(int, signature_key_str.replace("(", "").replace(")", "").split(',')))
-            
-            self.public_signature_keys[username] = signature_key
-            print(f'Recieved {username}\'s public signature key: {signature_key}')            
+            if(not (username == self.username)):
+                signature_key_str = parts[1]
+                signature_key_str = signature_key_str.replace("(", "").replace(")", "")
+                signature_key = list(map(int, signature_key_str.replace("(", "").replace(")", "").split(',')))
+                
+                self.public_signature_keys[username] = signature_key
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+                self.display_message(f'Recieved {username}\'s public signature key: {signature_key}')
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")            
     
     def check_shared_key(self, message):
         """Check and output the shared key for a specific user."""
@@ -300,46 +324,50 @@ class ChatGUI:
             target_username = parts[1]
 
             # Check if we have the public key for the target user
-            if target_username in self.public_keys:
+            if target_username == self.username:
+                self.display_message(f"Your Public Key Is: {pow(primitiveRoot, self.secret_integer, primeNumber)}")
+            elif target_username in self.public_keys:
                 # Calculate the shared secret key
                 shared_secret_key = pow(self.public_keys[target_username], self.secret_integer, primeNumber)
 
                 # Output the
                 # shared key for the specific user
-                print(f"Shared secret key with {target_username}: {shared_secret_key}")
+                self.display_message(f"Shared secret key with {target_username}: {shared_secret_key}")
             else:
-                print(f"Public key for {target_username} not available.")
+                self.display_message(f"Public key for {target_username} not available.")
         
                 
     def send_private_message(self, message):
         """Send a private message to a specific user."""
+        # Split the message into parts
         parts = message.split(' ', 2)
         target_username = parts[1]
-        message = parts[2]
+        message_content = parts[2]
+
+        # Compute shared secret key
         shared_secret_key = pow(self.public_keys[target_username], self.secret_integer, primeNumber)
         print(bin(shared_secret_key)[2:])
-        if(ENCRYPTIONTYPE == "STREAMCIPHER"):
-            ciphertext = encrypt(message, str(bin(shared_secret_key)[2:]))
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(message, self.privateSignKey)}'
-        elif(ENCRYPTIONTYPE == "AES_ECB"):
+
+        # Encrypt the message based on encryption type
+        ciphertext = self.encrypt_message(message_content, shared_secret_key)
+
+        # Create the final message with encryption and digital signature
+        final_message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(message_content, self.privateSignKey)}'
+
+        # Send the message to the server
+        client.send(final_message.encode('utf-8'))
+
+    def encrypt_message(self, message, shared_secret_key):
+        """Encrypt the message based on the encryption type."""
+        if ENCRYPTIONTYPE == "STREAMCIPHER":
+            return encrypt(message, str(bin(shared_secret_key)[2:]))
+        elif ENCRYPTIONTYPE == "AES_ECB" or ENCRYPTIONTYPE == "AES_CBC":
             key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, 'little')
-            ciphertext = encrypt(str(message), key_bytes, modes.ECB()).decode()
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(message, self.privateSignKey)}'
-        elif(ENCRYPTIONTYPE == "AES_CBC"):
-            key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, 'little')
-            ciphertext = encrypt(str(message), key_bytes, modes.CBC(self.IV)).decode()
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(message, self.privateSignKey)}'
-        elif(ENCRYPTIONTYPE == "DES_ECB"):
+            return encrypt(str(message), key_bytes, modes.ECB()).decode()
+        elif ENCRYPTIONTYPE == "DES_ECB" or ENCRYPTIONTYPE == "DES_CBC":
             key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, byteorder='big')
             key_bytes = hashlib.sha256(key_bytes).digest()[:8]
-            ciphertext = encrypt(str(message), key_bytes, DES.MODE_ECB).decode()
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(message, self.privateSignKey)}'
-        elif(ENCRYPTIONTYPE == "DES_CBC"):
-            key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, byteorder='big')
-            key_bytes = hashlib.sha256(key_bytes).digest()[:8]
-            ciphertext = encrypt(str(message), key_bytes, DES.MODE_CBC, self.IV).decode()
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(message, self.privateSignKey)}'   
-        client.send(message.encode('utf-8'))
+            return encrypt(str(message), key_bytes, DES.MODE_ECB if ENCRYPTIONTYPE == "DES_ECB" else DES.MODE_CBC, self.IV).decode()
 
 
 if __name__ == "__main__":

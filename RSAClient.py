@@ -45,9 +45,19 @@ class LFSR:
         key = []
         for _ in range(length):
             key.append(self.shift())
-        binary_string = ''.join(map(str, key))
-        generated_key = int(binary_string, 2)
-        return generated_key
+        
+        # Ensure that the generated key is not zero
+        generated_key_int = int(''.join(map(str, key)), 2)
+        while generated_key_int == 0:
+            key = []
+            for _ in range(length):
+                key.append(self.shift())
+            generated_key_int = int(''.join(map(str, key)), 2)
+
+        # Return both integer and binary string forms
+        generated_key_bin = ''.join(map(str, key))
+        return generated_key_int, generated_key_bin
+
 
 seed = [1, 0, 1, 0]  
 shiftFeedbackPositions = [0, 2, 3]       
@@ -83,11 +93,11 @@ def inverse_finder(a, n):
 def RSA_key_generate():
     e = 65537
     while(True):
-        p = generate_large_prime(512)
+        p = generate_large_prime(256)
         q = p
         
         while(p == q):
-            q = generate_large_prime(512)
+            q = generate_large_prime(256)
         n = p * q    
         euler = (p-1) * (q-1)
         
@@ -133,10 +143,8 @@ def RSA_verify(message, signature, public_key):
     decrypted_signature = exponentiation(signature, public_key[0], public_key[1])
     
     if hashed_message == decrypted_signature:
-        print("YESSSSSSSSSSSSSSSSSSSS!")
         return True
     else:
-        print("NOOOOOOOOOOOOOOO!")
         return False
     
 class UsernameGUI:
@@ -172,10 +180,11 @@ class UsernameGUI:
 class ChatGUI:
     def __init__(self, root, username):
         self.root = root
-        self.root.title("Chat Application")
+        self.root.title(f"{username}'s Chat Window")
+        self.username = username
 
         # Create a listbox to display messages
-        self.message_listbox = Listbox(root, height=20, width=50, selectbackground="white", exportselection=False)
+        self.message_listbox = Listbox(root, height=20, width=200, selectbackground="white", exportselection=False)
         self.message_listbox.pack(padx=10, pady=10)
 
         # Create a scrollbar for the listbox
@@ -187,7 +196,7 @@ class ChatGUI:
         scrollbar.config(command=self.message_listbox.yview)
 
         # Create an entry widget for typing messages
-        self.message_entry = Entry(root, width=50)
+        self.message_entry = Entry(root, width=200)
         self.message_entry.pack(padx=10, pady=10)
 
         # Create a Send button to send messages
@@ -215,12 +224,9 @@ class ChatGUI:
         key_length = 256
         if(ENCRYPTIONTYPE == 'DES_ECB' or ENCRYPTIONTYPE == 'DES_CBC'):
             key_length = 64
-        generated_key = lfsr.generate_key(key_length)
-        self.LSFRKey = generated_key
-        message = f"Your generated LFSR Key: {self.LSFRKey}"
-        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-        self.message_listbox.insert('end', message)
-        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+        self.key_length = key_length
+        generated_key, generated_keyBin = lfsr.generate_key(key_length)
+        self.LSFRKey, self.LSFRKeyBin = generated_key, generated_keyBin
                 
         # Start a thread to receive messages
         receive_thread = threading.Thread(target=self.receive_messages)
@@ -230,9 +236,20 @@ class ChatGUI:
         client.send(username.encode('utf-8'))
         if(ENCRYPTIONTYPE == "AES_CBC" or ENCRYPTIONTYPE == "DES_CBC"):
             client.send(f"Public key: {self.public_key[1]} Public Signature Key: ({self.publicSignKey[0]},{self.publicSignKey[1]}) Public IV: {b64encode(self.IV).decode()}".encode('utf-8'))
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+            self.display_message(f"Your generated LFSR Key: {self.LSFRKeyBin}")
+            self.display_message(f"Your Public Key: {self.public_key[1]}")
+            self.display_message(f"Your Public Signature Key: {({self.publicSignKey[0]},{self.publicSignKey[1]})}")
+            self.display_message(f"Your Public IV: {b64encode(self.IV).decode()}")
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")                 
         else:
             client.send(f"Public key: {self.public_key[1]} Public Signature Key: ({self.publicSignKey[0]},{self.publicSignKey[1]})".encode('utf-8'))        
-        
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+            self.display_message(f"Your generated LFSR Key: {self.LSFRKey}")
+            self.display_message(f"Your Public Key: {self.public_key[1]}")
+            self.display_message(f"Your Public Signature Key: {({self.publicSignKey[0]},{self.publicSignKey[1]})}")
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")         
+
     def send_message(self):
         message = self.message_entry.get()
         self.message_entry.delete(0, 'end')
@@ -252,129 +269,122 @@ class ChatGUI:
         while True:
             try:
                 message = client.recv(1024).decode('utf-8')
+
                 if message.startswith('./sendLFSRkey'):
-                    parts = message.split(' ', 5)
-                    encryptedLSFRKey = int(parts[2])
-                    decryptionKey = [int(parts[3]), int(parts[4])]
-                    fromUser = parts[5]
-                    sentLSFR = RSA_decrypt(encryptedLSFRKey, decryptionKey)
-                    message = f'Recieved from {fromUser}: {sentLSFR}'
-                    self.recievedLSFRKeys[fromUser] = int(sentLSFR)
-                    print(fromUser)
-                    print(self.recievedLSFRKeys[fromUser])
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)
+                    self.handle_sendLFSRkey(message)
                 elif message.startswith('./success'):
-                    parts = message.split(' ', 1)
-                    target_username = parts[1]
-                    message = f"LSFR key successfully sent to {target_username}."
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)
-                    # Mark the LSFR key as sent to the target user
-                    self.sentLSFRKeys.append(target_username)
+                    self.handle_success(message)
                 elif message.startswith("Public key of "):
                     self.handle_public_key(message)
                 elif message.startswith("Public IV of "):
                     self.handle_public_IV(message)
                 elif message.startswith("Signature key of "):
-                    self.handle_public_signature(message)                     
+                    self.handle_public_signature(message)
                 elif message.startswith('./fail'):
-                    parts = message.split(' ', 1)
-                    target_username = parts[1]
-                    message = f"Failed to send LSFR key to {target_username}."
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)
+                    self.handle_fail(message)
                 elif message.startswith("./decrypt"):
-                    parts = message.split(' ', 3)
-                    target_username = parts[1]
-                    private_message = parts[2]
-                    signature = int(parts[3])    
-                    message = f'The encrypted message was sent for you by {target_username}.'
-                    # Handle regular messages
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
-                    if(ENCRYPTIONTYPE == "STREAMCIPHER"):
-                        DecryptedMessage = decrypt(private_message, str(bin(self.recievedLSFRKeys[target_username])[2:]))
-                    elif(ENCRYPTIONTYPE == "AES_ECB"):
-                        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
-                        print(private_message)
-                        DecryptedMessage = decrypt(str(private_message), key_bytes, modes.ECB()).decode('utf-8')
-                    elif(ENCRYPTIONTYPE == "AES_CBC"):
-                        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
-                        DecryptedMessage = decrypt(private_message, key_bytes, modes.CBC(self.public_IVs[target_username]))
-                    elif(ENCRYPTIONTYPE == "DES_ECB"):
-                        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
-                        DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_ECB)     
-                    elif(ENCRYPTIONTYPE == "DES_CBC"):
-                        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
-                        DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_CBC, self.public_IVs[target_username])                      
-                    message = f'Decrypted Message using associated Key: {DecryptedMessage}'
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
-                    if(RSA_verify(DecryptedMessage, signature, self.public_signature_keys[target_username])):
-                        message = f'This message has been verified from its Digital Signature!'
-                        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                        self.message_listbox.insert('end', message)
-                        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
-                    else:
-                        message = f'This message is not verified from its Digital Signature!'
-                        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                        self.message_listbox.insert('end', message)
-                        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification                                              
+                    self.handle_decrypt(message)
                 else:
-                    self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-                    self.message_listbox.insert('end', message)
-                    self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+                    self.display_message(message)
+
             except Exception as e:
                 print(f"An error occurred while receiving messages: {e}")
                 client.close()
                 break
 
+    def handle_sendLFSRkey(self, message):
+        parts = message.split(' ', 5)
+        encryptedLSFRKey = int(parts[2])
+        decryptionKey = [int(parts[3]), int(parts[4])]
+        fromUser = parts[5]
+        sentLSFR = RSA_decrypt(encryptedLSFRKey, decryptionKey)
+        self.recievedLSFRKeys[fromUser] = int(sentLSFR)
+        key_length = f'0{self.key_length}b'
+        self.display_message(f'Received from {fromUser}: {format(self.recievedLSFRKeys[fromUser], key_length)}')
+
+    def handle_success(self, message):
+        target_username = message.split(' ', 1)[1]
+        self.display_message(f"LSFR key successfully sent to {target_username}.")
+        self.sentLSFRKeys.append(target_username)
+
+    def handle_fail(self, message):
+        target_username = message.split(' ', 1)[1]
+        self.display_message(f"Failed to send LSFR key to {target_username}.")
+
+    def handle_decrypt(self, message):
+        parts = message.split(' ', 3)
+        target_username, private_message, signature = parts[1], parts[2], int(parts[3])
+        self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+        self.display_message(f'The encrypted message was sent for you by {target_username}.')
+
+        key_bytes = self.recievedLSFRKeys[target_username].to_bytes((self.recievedLSFRKeys[target_username].bit_length() + 7) // 8, 'little')
+
+        if ENCRYPTIONTYPE == "STREAMCIPHER":
+            DecryptedMessage = decrypt(private_message, str(bin(self.recievedLSFRKeys[target_username])[2:]))
+        elif ENCRYPTIONTYPE == "AES_ECB":
+            DecryptedMessage = decrypt(str(private_message), key_bytes, modes.ECB()).decode('utf-8')
+        elif ENCRYPTIONTYPE == "AES_CBC":
+            DecryptedMessage = decrypt(private_message, key_bytes, modes.CBC(self.public_IVs[target_username]))
+        elif ENCRYPTIONTYPE == "DES_ECB":
+            DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_ECB)
+        elif ENCRYPTIONTYPE == "DES_CBC":
+            DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_CBC, self.public_IVs[target_username])
+
+        self.display_message(f'Decrypted Message using associated Key: {DecryptedMessage}')
+
+        if RSA_verify(DecryptedMessage, signature, self.public_signature_keys[target_username]):
+            self.display_message(f'This message has been verified from its Digital Signature!')
+        else:
+            self.display_message(f'This message is not verified from its Digital Signature!')
+        self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+
+    def display_message(self, message):
+        self.message_listbox.config(state=NORMAL)
+        self.message_listbox.insert('end', message)
+        self.message_listbox.config(state=DISABLED)
+
                 
     def send_private_message(self, message):
-        # Extract username and private message from the message
+        # Extract username, target_username, and private_message from the message
         _, target_username, private_message = message.split(' ', 2)
 
         # Check if the target username is in the list of users
         if target_username not in self.sentLSFRKeys:
-            print(f"User {target_username} not found in the list.")
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+            self.display_message(f"Error: Either user {target_username} does not exist OR you have not yet sent your LFSR Key to them!")
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
             # Handle the error case as needed (e.g., display an error message)
             return
 
-        # Send the private message to the target user
-        if(ENCRYPTIONTYPE == "STREAMCIPHER"):
-            ciphertext = encrypt(private_message, str(bin(self.LSFRKey)[2:]))
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
-        elif(ENCRYPTIONTYPE == "AES_ECB"):
+        # Encrypt the private message based on encryption type
+        ciphertext = self.encrypt_private_message(private_message)
+
+        # Create the final message with encryption and digital signature
+        final_message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
+
+        # Send the message to the server
+        client.send(final_message.encode('utf-8'))
+
+    def encrypt_private_message(self, private_message):
+        """Encrypt the private message based on the encryption type."""
+        if ENCRYPTIONTYPE == "STREAMCIPHER":
+            return encrypt(private_message, str(bin(self.LSFRKey)[2:]))
+        elif ENCRYPTIONTYPE == "AES_ECB" or ENCRYPTIONTYPE == "AES_CBC":
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            ciphertext = encrypt(str(private_message), key_bytes, modes.ECB()).decode()
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
-        elif(ENCRYPTIONTYPE == "AES_CBC"):
+            return encrypt(str(private_message), key_bytes, modes.ECB()).decode()
+        elif ENCRYPTIONTYPE == "DES_ECB" or ENCRYPTIONTYPE == "DES_CBC":
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            ciphertext = encrypt(str(private_message), key_bytes, modes.CBC(self.IV)).decode()
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
-        elif(ENCRYPTIONTYPE == "DES_ECB"):
-            key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            ciphertext = encrypt(str(private_message), key_bytes, DES.MODE_ECB).decode()
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'
-        elif(ENCRYPTIONTYPE == "DES_CBC"):
-            key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            ciphertext = encrypt(str(private_message), key_bytes, DES.MODE_CBC, self.IV).decode()
-            message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(private_message, self.privateSignKey)}'          
-        
-        client.send(message.encode('utf-8'))
+            return encrypt(str(private_message), key_bytes, DES.MODE_ECB if ENCRYPTIONTYPE == "DES_ECB" else DES.MODE_CBC, self.IV).decode()
+
 
     def send_LSFR_key(self, message):
         _, target_username = message.split(' ', 2)
 
         # Check if the LSFR key has already been sent to the target user
         if target_username in self.sentLSFRKeys:
-            print(f"LSFR key already sent to {target_username}.")
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+            self.display_message(f"You have already sent your LFSR Key to {target_username}.")
+            self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
             return
 
         # Send the LSFR key to the target user
@@ -386,32 +396,41 @@ class ChatGUI:
         parts = message.split(": ")
         if len(parts) == 2:
             username = parts[0][14:]
-            public_key = int(parts[1])
-            
-            self.public_keys[username] = public_key
-            print(f'Recieved {username}\'s public key: {public_key}')
+            if(not (username == self.username)):
+                public_key = int(parts[1])
+                
+                self.public_keys[username] = public_key
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+                self.display_message(f'Recieved {username}\'s public key: {public_key}')
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
 
     def handle_public_IV(self, message):
         # Parse the public key message
         parts = message.split(": ")
         if len(parts) == 2:
             username = parts[0][13:]
-            IV = b64decode(parts[1])
-            
-            self.public_IVs[username] = IV
-            print(f'Recieved {username}\'s public IV: {IV}')    
+            if(not (username == self.username)):
+                IV = b64decode(parts[1])
+                
+                self.public_IVs[username] = IV
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+                self.display_message(f'Recieved {username}\'s public IV: {IV}')
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")    
 
     def handle_public_signature(self, message):
         # Parse the public key message
         parts = message.split(": ")
         if len(parts) == 2:
             username = parts[0][17:]
-            signature_key_str = parts[1]
-            signature_key_str = signature_key_str.replace("(", "").replace(")", "")
-            signature_key = list(map(int, signature_key_str.replace("(", "").replace(")", "").split(',')))
-            
-            self.public_signature_keys[username] = signature_key
-            print(f'Recieved {username}\'s public signature key: {signature_key}')     
+            if(not (username == self.username)):
+                signature_key_str = parts[1]
+                signature_key_str = signature_key_str.replace("(", "").replace(")", "")
+                signature_key = list(map(int, signature_key_str.replace("(", "").replace(")", "").split(',')))
+                
+                self.public_signature_keys[username] = signature_key
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
+                self.display_message(f'Recieved {username}\'s public signature key: {signature_key}')
+                self.display_message("--------------------------------------------------------------------------------------------------------------------------------")     
 
 
 if __name__ == "__main__":
