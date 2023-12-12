@@ -145,12 +145,14 @@ def handle_client(client, username):
                 parts = message.split(' ', 4)
                 if len(parts) == 5:
                     target_username = parts[1]
-
+                    encrypted_message = parts[2]
                     # Find the target client based on the username
                     target_client = next((c for c, u in zip(clients, usernames) if u == target_username), None)
 
                     # Send the private message to the target user
                     if target_client:
+                        broadcast(encrypted_message.encode('utf-8'), client)
+                        time.sleep(0.1)
                         target_client.send(f"{message} {username}".encode('utf-8'))
                         response = f'./success {target_username}'
                     else:
@@ -161,7 +163,8 @@ def handle_client(client, username):
                     sender_index = clients.index(client)
                     sender_username = usernames[sender_index]
                     sender_client = clients[sender_index]
-                    time.sleep(0.1)
+                    
+                    
                     sender_client.send(response.encode('utf-8'))
 
                 else:

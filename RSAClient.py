@@ -1,7 +1,7 @@
 import socket
 import threading
 import random
-from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, NORMAL, Toplevel, Label
+from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, NORMAL, Toplevel, Label, WORD, Text, END
 from sympy import isprime
 from gmpy2 import powmod
 import os
@@ -184,16 +184,16 @@ class ChatGUI:
         self.username = username
 
         # Create a listbox to display messages
-        self.message_listbox = Listbox(root, height=20, width=200, selectbackground="white", exportselection=False)
-        self.message_listbox.pack(padx=10, pady=10)
+        self.message_text = Text(root, height=20, width=200, selectbackground="white", exportselection=False, wrap=WORD)
+        self.message_text.pack(padx=10, pady=10)
 
         # Create a scrollbar for the listbox
         scrollbar = Scrollbar(root)
         scrollbar.pack(side="right", fill="y")
 
         # Attach the listbox to the scrollbar
-        self.message_listbox.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=self.message_listbox.yview)
+        self.message_text.config(yscrollcommand=scrollbar.set)
+        scrollbar.config(command=self.message_text.yview)
 
         # Create an entry widget for typing messages
         self.message_entry = Entry(root, width=200)
@@ -245,7 +245,7 @@ class ChatGUI:
         else:
             client.send(f"Public key: {self.public_key[1]} Public Signature Key: ({self.publicSignKey[0]},{self.publicSignKey[1]})".encode('utf-8'))        
             self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
-            self.display_message(f"Your generated LFSR Key: {self.LSFRKey}")
+            self.display_message(f"Your generated LFSR Key: {self.LSFRKeyBin}")
             self.display_message(f"Your Public Key: {self.public_key[1]}")
             self.display_message(f"Your Public Signature Key: {({self.publicSignKey[0]},{self.publicSignKey[1]})}")
             self.display_message("--------------------------------------------------------------------------------------------------------------------------------")         
@@ -324,7 +324,7 @@ class ChatGUI:
         elif ENCRYPTIONTYPE == "AES_ECB":
             DecryptedMessage = decrypt(str(private_message), key_bytes, modes.ECB()).decode('utf-8')
         elif ENCRYPTIONTYPE == "AES_CBC":
-            DecryptedMessage = decrypt(private_message, key_bytes, modes.CBC(self.public_IVs[target_username]))
+            DecryptedMessage = decrypt(private_message, key_bytes, modes.CBC(self.public_IVs[target_username])).decode('utf-8')
         elif ENCRYPTIONTYPE == "DES_ECB":
             DecryptedMessage = decrypt(private_message, key_bytes, DES.MODE_ECB)
         elif ENCRYPTIONTYPE == "DES_CBC":
@@ -339,9 +339,7 @@ class ChatGUI:
         self.display_message("--------------------------------------------------------------------------------------------------------------------------------")
 
     def display_message(self, message):
-        self.message_listbox.config(state=NORMAL)
-        self.message_listbox.insert('end', message)
-        self.message_listbox.config(state=DISABLED)
+        self.message_text.insert(END, message + '\n')
 
                 
     def send_private_message(self, message):
@@ -371,10 +369,13 @@ class ChatGUI:
             return encrypt(private_message, str(bin(self.LSFRKey)[2:]))
         elif ENCRYPTIONTYPE == "AES_ECB" or ENCRYPTIONTYPE == "AES_CBC":
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            return encrypt(str(private_message), key_bytes, modes.ECB()).decode()
+            return encrypt(str(private_message), key_bytes, modes.ECB() if ENCRYPTIONTYPE == "AES_ECB" else modes.CBC(self.IV)).decode()
         elif ENCRYPTIONTYPE == "DES_ECB" or ENCRYPTIONTYPE == "DES_CBC":
             key_bytes = self.LSFRKey.to_bytes((self.LSFRKey.bit_length() + 7) // 8, 'little')
-            return encrypt(str(private_message), key_bytes, DES.MODE_ECB if ENCRYPTIONTYPE == "DES_ECB" else DES.MODE_CBC, self.IV).decode()
+            if ENCRYPTIONTYPE == "DES_ECB":
+                return encrypt(private_message, key_bytes, DES.MODE_ECB).decode()
+            else:
+                return encrypt(private_message, key_bytes, DES.MODE_CBC, self.IV).decode()
 
 
     def send_LSFR_key(self, message):

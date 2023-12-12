@@ -1,7 +1,7 @@
 import socket
 import threading
 import random
-from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, NORMAL, Toplevel, Label
+from tkinter import Tk, Scrollbar, Listbox, Entry, Button, StringVar, DISABLED, NORMAL, Toplevel, Label, WORD, Text, END
 from sympy import isprime
 from gmpy2 import powmod
 import math
@@ -124,8 +124,8 @@ class ChatGUI:
         self.root.title(f"{username}'s Chat Window")
 
         # Create a listbox to display messages
-        self.message_listbox = Listbox(root, height=20, width=200, selectbackground="white", exportselection=False)
-        self.message_listbox.pack(padx=10, pady=10)
+        self.message_text = Text(root, height=20, width=200, selectbackground="white", exportselection=False, wrap=WORD)
+        self.message_text.pack(padx=10, pady=10)
         self.username = username
 
         # Create a scrollbar for the listbox
@@ -133,8 +133,8 @@ class ChatGUI:
         scrollbar.pack(side="right", fill="y")
 
         # Attach the listbox to the scrollbar
-        self.message_listbox.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=self.message_listbox.yview)
+        self.message_text.config(yscrollcommand=scrollbar.set)
+        scrollbar.config(command=self.message_text.yview)
 
         # Create an entry widget for typing messages
         self.message_entry = Entry(root, width=200)
@@ -151,7 +151,7 @@ class ChatGUI:
         self.public_signature_keys = {}
 
         self.publicSignKey, self.privateSignKey = RSA_key_generate()
-
+    
         if(ENCRYPTIONTYPE == "AES_CBC"):
             self.public_IVs = {}
             self.IV = os.urandom(16)
@@ -248,9 +248,7 @@ class ChatGUI:
 
     def display_message(self, message):
         """Display a message in the message listbox."""
-        self.message_listbox.config(state=NORMAL)  # Enable listbox for modification
-        self.message_listbox.insert('end', message)
-        self.message_listbox.config(state=DISABLED)  # Disable listbox after modification
+        self.message_text.insert(END, message + '\n')
 
     def decrypt_message(self, private_message, shared_secret_key, target_username):
         """Decrypt the message based on the encryption type."""
@@ -258,11 +256,14 @@ class ChatGUI:
             return decrypt(private_message, str(bin(shared_secret_key)[2:]))
         elif ENCRYPTIONTYPE == "AES_ECB" or ENCRYPTIONTYPE == "AES_CBC":
             key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, 'little')
-            return decrypt(private_message, key_bytes, modes.ECB() if ENCRYPTIONTYPE == "AES_ECB" else modes.CBC(self.public_IVs[target_username]))
+            return decrypt(private_message, key_bytes, modes.ECB() if ENCRYPTIONTYPE == "AES_ECB" else modes.CBC(self.public_IVs[target_username])).decode('utf-8')
         elif ENCRYPTIONTYPE == "DES_ECB" or ENCRYPTIONTYPE == "DES_CBC":
             key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, byteorder='big')
             key_bytes = hashlib.sha256(key_bytes).digest()[:8]
-            return decrypt(private_message, key_bytes, DES.MODE_ECB if ENCRYPTIONTYPE == "DES_ECB" else DES.MODE_CBC, self.public_IVs[target_username])
+            if ENCRYPTIONTYPE == "DES_ECB":
+                return decrypt(private_message, key_bytes, DES.MODE_ECB)
+            else:
+                return decrypt(private_message, key_bytes, DES.MODE_CBC, self.public_IVs[target_username])
 
     def verify_signature(self, decrypted_message, signature, public_signature_key):
         """Verify the digital signature of the decrypted message."""
@@ -336,7 +337,6 @@ class ChatGUI:
             else:
                 self.display_message(f"Public key for {target_username} not available.")
         
-                
     def send_private_message(self, message):
         """Send a private message to a specific user."""
         # Split the message into parts
@@ -349,27 +349,28 @@ class ChatGUI:
         print(bin(shared_secret_key)[2:])
 
         # Encrypt the message based on encryption type
-        ciphertext = self.encrypt_message(message_content, shared_secret_key)
-
+        ciphertext = self.encrypt_message(message_content +" HACKED", shared_secret_key, target_username)
+        
         # Create the final message with encryption and digital signature
         final_message = f'./sendToUser {target_username} {ciphertext} {RSA_sign(message_content, self.privateSignKey)}'
 
         # Send the message to the server
         client.send(final_message.encode('utf-8'))
 
-    def encrypt_message(self, message, shared_secret_key):
+    def encrypt_message(self, message, shared_secret_key, target_username):
         """Encrypt the message based on the encryption type."""
         if ENCRYPTIONTYPE == "STREAMCIPHER":
             return encrypt(message, str(bin(shared_secret_key)[2:]))
         elif ENCRYPTIONTYPE == "AES_ECB" or ENCRYPTIONTYPE == "AES_CBC":
             key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, 'little')
-            return encrypt(str(message), key_bytes, modes.ECB()).decode()
+            return encrypt(str(message), key_bytes, modes.ECB() if ENCRYPTIONTYPE == "AES_ECB" else modes.CBC(self.IV)).decode()
         elif ENCRYPTIONTYPE == "DES_ECB" or ENCRYPTIONTYPE == "DES_CBC":
             key_bytes = shared_secret_key.to_bytes((shared_secret_key.bit_length() + 7) // 8, byteorder='big')
             key_bytes = hashlib.sha256(key_bytes).digest()[:8]
-            return encrypt(str(message), key_bytes, DES.MODE_ECB if ENCRYPTIONTYPE == "DES_ECB" else DES.MODE_CBC, self.IV).decode()
-
-
+            if ENCRYPTIONTYPE == "DES_ECB":
+                return encrypt(str(message), key_bytes, DES.MODE_ECB).decode()   
+            else:     
+                return encrypt(str(message), key_bytes, DES.MODE_CBC, self.IV).decode()  
 if __name__ == "__main__":
     # Start with the username entry GUI
     username_root = Tk()

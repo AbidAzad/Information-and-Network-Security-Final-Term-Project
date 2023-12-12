@@ -13,4 +13,3 @@ def encrypt(text, key):
 def decrypt(ciphertext, key):
     decrypted_bits = [int(bit) ^ int(key[i % len(key)]) for i, bit in enumerate(ciphertext)]
     return bits_to_text(''.join(map(str, decrypted_bits)))
-

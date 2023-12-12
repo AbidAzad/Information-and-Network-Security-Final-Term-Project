@@ -34,5 +34,3 @@ def decrypt(ciphertext, key, mode, iv=None):
 
     return plaintext.decode()
 
-key = get_random_bytes(8)  # 56-bit key
-iv = get_random_bytes(8)   # Initialization vector for CBC mode
